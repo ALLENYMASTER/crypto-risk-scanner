@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: crypto-risk-scanner
+    env: python
+    region: oregon  # Choose closest region: oregon, frankfurt, singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python crypto_risk_app.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        generateValue: true
+    healthCheckPath: /api/status

@@ -1,0 +1,41 @@
+python-3.11.0
+```
+
+---
+
+### **Phase 2: Set Up GitHub (Fix Authentication Error)**
+
+The error `Invalid username or token. Password authentication is not supported` means GitHub no longer accepts passwords for Git operations. You need to use a **Personal Access Token (PAT)**.
+
+#### Option A: Use Personal Access Token (Recommended)
+
+**Step 1: Create GitHub Account** (if you don't have one)
+- Go to [github.com](https://github.com)
+- Click "Sign up"
+- Follow the registration process
+
+**Step 2: Create Personal Access Token**
+
+1. **Log in to GitHub**
+2. **Go to Settings**:
+   - Click your profile picture (top right)
+   - Click "Settings"
+
+3. **Navigate to Developer Settings**:
+   - Scroll down to "Developer settings" (left sidebar, at bottom)
+   - Click "Personal access tokens"
+   - Click "Tokens (classic)"
+
+4. **Generate New Token**:
+   - Click "Generate new token" → "Generate new token (classic)"
+   - **Note**: `crypto-scanner-deployment`
+   - **Expiration**: Choose "90 days" or "No expiration"
+   - **Select scopes**:
+     - ✅ `repo` (Full control of private repositories)
+     - ✅ `workflow` (Update GitHub Action workflows)
+   - Click "Generate token" (bottom of page)
+
+5. **Copy Token** (IMPORTANT):
+```
+   ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   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
