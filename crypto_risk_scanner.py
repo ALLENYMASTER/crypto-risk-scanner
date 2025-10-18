@@ -549,15 +549,15 @@ class ComprehensiveCryptoRiskTracker:
             volume_surge = (volume_to_mcap / avg_volume_ratio) - 1  # Deviation from normal
             volatility_7d = abs(price_change_7d)
             
-            if market_cap > 100e9:  # BTC/ETH 等大盤 (>$100B)
-                surge_threshold_strong = 0.6  # 需要更強信號
+            if market_cap > 100e9:  # BTC/ETH (>$100B)
+                surge_threshold_strong = 0.6  
                 surge_threshold_normal = 0.4
                 surge_threshold_low = -0.4
-            elif market_cap > 10e9:  # 大型幣 (>$10B)
+            elif market_cap > 10e9:  # (>$10B)
                 surge_threshold_strong = 0.5
                 surge_threshold_normal = 0.3
                 surge_threshold_low = -0.3
-            else:  # 山寨幣，更敏感
+            else:  
                 surge_threshold_strong = 0.4
                 surge_threshold_normal = 0.2
                 surge_threshold_low = -0.2
@@ -640,21 +640,19 @@ class ComprehensiveCryptoRiskTracker:
                 else:
                     mvrv_ratio = base_mvrv
                 
-                # 時間衰減修正（長期熊市，realized價格下降）
                 try:
                     if ath_date_str:
                         ath_date = datetime.strptime(ath_date_str[:10], '%Y-%m-%d')
                         days_since_ath = (datetime.now() - ath_date).days
                         
-                        # 超過1年且深跌 = 長期熊市
                         if days_since_ath > 365 and ath_dist < -50:
-                            decay_factor = 0.95  # 輕微下調
+                            decay_factor = 0.95  
                             mvrv_ratio *= decay_factor
                             
                             if hasattr(self, 'logger'):
                                 self.logger.debug(f"MVRV time weaken: {days_since_ath}days from ATH, adjust to {mvrv_ratio:.2f}")
                 except:
-                    pass  # 日期解析失敗，忽略
+                    pass  
                 
                 mvrv_ratio = round(mvrv_ratio, 2)
             
@@ -1196,24 +1194,20 @@ class ComprehensiveCryptoRiskTracker:
                 estimated_lth_supply = max(estimated_lth_supply, 78)
             
             ath_dist = market_data.get('ath_change_percentage', 0)
-            if ath_dist < -60:  # 深熊市區域
-                # LTH更可能在囤積
+            if ath_dist < -60:  
                 if behavior == 'NEUTRAL':
                     behavior = 'ACCUMULATION'
                     signal_strength = 'MODERATE'
                     estimated_lth_supply += 3
                 elif behavior == 'ACCUMULATION':
-                    # 加強信號
                     signal_strength = 'VERY_STRONG'
                     estimated_lth_supply = min(estimated_lth_supply + 2, 82)
-            elif ath_dist > -10 and price_change_30d > 30:  # 接近ATH且暴漲
-                # LTH更可能在派發
+            elif ath_dist > -10 and price_change_30d > 30:  
                 if behavior == 'NEUTRAL':
                     behavior = 'DISTRIBUTION'
                     signal_strength = 'MODERATE'
                     estimated_lth_supply -= 5
                 elif behavior == 'DISTRIBUTION':
-                    # 加強信號
                     signal_strength = 'VERY_STRONG'
                     estimated_lth_supply = max(estimated_lth_supply - 3, 60)
             
@@ -1265,7 +1259,7 @@ class ComprehensiveCryptoRiskTracker:
         if behavior == 'DISTRIBUTION':
             return '🚨 CYCLE TOP SIGNAL' if supply < 65 else '⚠️ Profit taking phase'
         elif behavior == 'ACCUMULATION':
-            return '💎 CYCLE BOTTOM SIGNAL' if supply > 77 else '✅ Smart money accumulation'
+            return '💎 CYCLE BOTTOM SIGNAL' if supply > 77 else ' Smart money accumulation'
         elif behavior == 'HOLDING':
             return '🔒 HODLing steady'
         return '➡️ No clear trend'
@@ -1301,9 +1295,8 @@ class ComprehensiveCryptoRiskTracker:
             else:
                 vol_component = min(32 + (avg_volatility - 20) * 1.6, 40)
             
-            # 暴漲期權重調整
             if price_change_30d > 50:
-                vol_component *= 1.2  # 暴漲期更易見頂
+                vol_component *= 1.2  
             
             # === 2. VOLUME COMPONENT (0-40 points) ===
             volume_to_mcap = (volume / mcap) if mcap > 0 else 0
@@ -1317,13 +1310,11 @@ class ComprehensiveCryptoRiskTracker:
             else:
                 volume_component = min(32 + (volume_to_mcap - 0.30) * 80, 40)
             
-            # 暴漲期權重調整
             if price_change_30d > 50:
                 volume_component *= 1.15
             
-            # 極低量懲罰
             if volume_to_mcap < 0.02:
-                volume_component *= 0.7  # 極低量期降低分數
+                volume_component *= 0.7  
             
             # === 3. FUNDING RATE COMPONENT (0-20 points) ===
             fr_component = 0
@@ -1395,7 +1386,7 @@ class ComprehensiveCryptoRiskTracker:
                 'score': hodl_score,
                 'level': level,
                 'interpretation': interpretation,
-                'consecutive_warning': consecutive_warning,  # ✅ 新增
+                'consecutive_warning': consecutive_warning, 
                 'components': {
                     'volatility': vol_component,
                     'volume': volume_component,
@@ -1441,7 +1432,7 @@ class ComprehensiveCryptoRiskTracker:
     
     def estimate_market_leverage(self, derivatives, market_data):
         """
-        ✅ Estimate overall market leverage
+         Estimate overall market leverage
         
         Method:
         1. OI to Market Cap ratio (higher = more leverage)
@@ -1528,7 +1519,7 @@ class ComprehensiveCryptoRiskTracker:
             
             if leverage_score < 30:
                 risk_level = 'LOW'
-                interpretation = '✅ Healthy leverage levels'
+                interpretation = ' Healthy leverage levels'
             elif leverage_score < 50:
                 risk_level = 'MODERATE'
                 interpretation = '➡️ Normal leverage activity'
@@ -1560,7 +1551,7 @@ class ComprehensiveCryptoRiskTracker:
     
     def determine_market_regime(self, market_data, fear_greed, hodl):
         """
-        ✅ NEW: Detect market regime for dynamic weighting
+        ✅ Detect market regime for dynamic weighting
         
         Regimes:
         1. BULL_RUN: High momentum, greed, rising prices
@@ -1609,7 +1600,7 @@ class ComprehensiveCryptoRiskTracker:
     
     def get_dynamic_weights(self, regime):
         """
-        ✅ NEW: Adjust component weights based on market regime
+        ✅ Adjust component weights based on market regime
         
         Logic:
         - BULL_RUN: Weight momentum (technical, derivatives)
@@ -1752,7 +1743,7 @@ class ComprehensiveCryptoRiskTracker:
             backupCount=2,  # Keep only 2 backup files (reduces disk usage)
             encoding='utf-8'
         )
-        file_handler.setLevel(logging.INFO)  # ✅ Changed from DEBUG to INFO
+        file_handler.setLevel(logging.INFO)  
         file_handler.setFormatter(detailed_formatter)
         file_handler.addFilter(SensitiveDataFilter())
         
@@ -1832,15 +1823,13 @@ class ComprehensiveCryptoRiskTracker:
     
     # History
     def _load_history(self):
-        """載入歷史數據"""
         try:
             if os.path.exists(self.history_file):
                 with open(self.history_file, 'r') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"⚠️  無法載入歷史數據: {e}")
+            print(f"⚠️  Fail to upload history: {e}")
         
-        # 初始化空歷史
         return {symbol: {
             'hodl_scores': [],
             'lth_supply': [],
@@ -1851,7 +1840,6 @@ class ComprehensiveCryptoRiskTracker:
         } for symbol in self.symbols}
 
     def _save_history(self):
-        """保存歷史數據"""
         try:
             with open(self.history_file, 'w') as f:
                 json.dump(self.history, f, indent=2)
@@ -1859,7 +1847,6 @@ class ComprehensiveCryptoRiskTracker:
             print(f"⚠️  無法保存歷史數據: {e}")
 
     def _update_history(self, symbol, metrics):
-        """更新歷史數據（保留最近30天）"""
         if symbol not in self.history:
             self.history[symbol] = {
                 'hodl_scores': [],
@@ -1873,7 +1860,6 @@ class ComprehensiveCryptoRiskTracker:
         hist = self.history[symbol]
         now = datetime.now().isoformat()
         
-        # 添加新數據
         hist['timestamps'].append(now)
         hist['hodl_scores'].append(metrics.get('hodl_score'))
         hist['lth_supply'].append(metrics.get('lth_supply'))
@@ -1881,7 +1867,6 @@ class ComprehensiveCryptoRiskTracker:
         hist['mvrv_ratio'].append(metrics.get('mvrv_ratio'))
         hist['leverage_score'].append(metrics.get('leverage_score'))
         
-        # 只保留最近30個數據點
         max_history = 30
         for key in hist:
             if len(hist[key]) > max_history:
@@ -1965,42 +1950,26 @@ class ComprehensiveCryptoRiskTracker:
         return 'NEUTRAL'
 
     def detect_divergence(self, price_changes, indicator_values, lookback=5):
-        """
-        偵測背離信號
-        
-        Args:
-            price_changes: 價格變化列表 (%)
-            indicator_values: 指標數值列表
-            lookback: 回看期數
-        
-        Returns:
-            'BEARISH_DIV', 'BULLISH_DIV', 'NONE'
-        """
         if not price_changes or not indicator_values:
             return 'NONE'
         
         if len(price_changes) < lookback or len(indicator_values) < lookback:
             return 'NONE'
         
-        # 過濾 None
         recent_prices = [p for p in price_changes[-lookback:] if p is not None]
         recent_indicators = [i for i in indicator_values[-lookback:] if i is not None]
         
         if len(recent_prices) < 3 or len(recent_indicators) < 3:
             return 'NONE'
         
-        # 計算趨勢
         price_trend = 'UP' if recent_prices[-1] > recent_prices[0] else 'DOWN'
         indicator_trend = 'UP' if recent_indicators[-1] > recent_indicators[0] else 'DOWN'
         
-        # 背離偵測
         if price_trend == 'UP' and indicator_trend == 'DOWN':
-            # 價格新高但指標走低 = 頂背離
             if recent_prices[-1] > max(recent_prices[:-1]):
                 return 'BEARISH_DIVERGENCE'
         
         elif price_trend == 'DOWN' and indicator_trend == 'UP':
-            # 價格新低但指標走高 = 底背離
             if recent_prices[-1] < min(recent_prices[:-1]):
                 return 'BULLISH_DIVERGENCE'
         
@@ -2031,10 +2000,9 @@ class ComprehensiveCryptoRiskTracker:
         if symbol in self.history and market_data:
             hist = self.history[symbol]
             
-            # 1. 價格 vs HODL Momentum 背離
+            # 1. 
             if hodl and len(hist.get('hodl_scores', [])) >= 5:
-                # 構建價格變化列表（簡化：用單一價格變化代理）
-                price_changes = [market_data.get('price_change_7d', 0)] * 5  # 簡化版
+                price_changes = [market_data.get('price_change_7d', 0)] * 5  
                 hodl_divergence = self.detect_divergence(
                     price_changes,
                     hist['hodl_scores'],
@@ -2048,12 +2016,11 @@ class ComprehensiveCryptoRiskTracker:
                     divergence_signals.append('📈 divergence_bottom: price new low but HODL momentum up')
                     score_components['divergence'] = 8
             
-            # 2. 價格 vs LTH Supply 背離
+            # 2.
             if lth and len(hist.get('lth_supply', [])) >= 5:
                 price_changes = [market_data.get('price_change_30d', 0)] * 5
                 lth_supply_values = hist['lth_supply']
                 
-                # 供應增加 = 指標"下降"（更多人持有）
                 inverted_supply = [-s for s in lth_supply_values if s is not None]
                 
                 lth_divergence = self.detect_divergence(
@@ -2069,7 +2036,6 @@ class ComprehensiveCryptoRiskTracker:
                     divergence_signals.append('🔺 LTH divergence: price down but buy more')
                     score_components['divergence'] += 6
         
-        # 添加背離信號到總信號列表
         signals.extend(divergence_signals)
     
         # === 1. SUPPORT/RESISTANCE (unchanged scoring) ===
@@ -2332,7 +2298,7 @@ class ComprehensiveCryptoRiskTracker:
             'hodl': 0.05,
             'sentiment': 0.05,
             'confluence': 0.00,  # Bonus, adds to total but not part of base weight
-            'divergence': 0.00   # 背離信號（Bonus）
+            'divergence': 0.00   
         }
         
         # Calculate weighted score
@@ -2480,7 +2446,6 @@ class ComprehensiveCryptoRiskTracker:
             'analysis': analysis
         }
 
-        # 計算預期回報（僅在 BUY 信號時）
         if analysis['action'] in ['🟢 STRONG BUY', '🟢 BUY']:
             expected_returns = self.calculate_expected_returns(result)
             result['expected_returns'] = expected_returns
@@ -2633,7 +2598,7 @@ class ComprehensiveCryptoRiskTracker:
                 elif 'PERFECT STORM SELL' in signal:
                     probability_factors.append(('Perfect Storm Sell', -18, 0.98))
             
-            # === 3. ✅ IMPROVED: Apply weighted adjustments with decay ===
+            # === 3. Apply weighted adjustments with decay ===
             # Sort by absolute adjustment value (strongest signals first)
             probability_factors.sort(key=lambda x: abs(x[1]), reverse=True)
             
@@ -2657,7 +2622,7 @@ class ComprehensiveCryptoRiskTracker:
             upside_probability = base_probability + total_adjustment
             upside_probability = max(10, min(95, upside_probability))  # Clamp to 10-95%
             
-            # === 5. ✅ IMPROVED: Calculate expected returns using historical volatility ===
+            # === 5. Calculate expected returns using historical volatility ===
             if md:
                 volatility_7d = abs(md.get('price_change_7d', 0))
                 volatility_30d = abs(md.get('price_change_30d', 0))
@@ -2774,19 +2739,17 @@ class ComprehensiveCryptoRiskTracker:
         fg = result['fear_greed']
         hodl_data = result.get('hodl')
         
-        # 背離信號優先處理
         divergence_signals = [s for s in result['analysis']['signals'] if 'DIVERGENCE' in s or 'divergence' in s.lower()]
         
         if divergence_signals:
             for div_signal in divergence_signals:
                 if 'BEARISH_DIVERGENCE' in div_signal or 'BEARISH' in div_signal.upper():
-                    suggestions.append(f"⚠️  {div_signal} - 考慮減倉或設置保護性止損")
+                    suggestions.append(f"⚠️  {div_signal} - sell")
                 elif 'BULLISH_DIVERGENCE' in div_signal or 'BULLISH' in div_signal.upper():
-                    suggestions.append(f"✅ {div_signal} - 潛在反轉機會，可小倉位試探")
+                    suggestions.append(f"✅ {div_signal} - buy")
         
-        # 連續高分警告
         if hodl_data and hodl_data.get('consecutive_warning'):
-            suggestions.append(f"🚨 HODL連續高分警告 - 週期頂部風險極高，建議大幅減倉")
+            suggestions.append(f"🚨 HODL continuous high score warming")
         
         # === ENTRY SUGGESTIONS ===
         if action in ['🟢 STRONG BUY', '🟢 BUY']:
@@ -3069,7 +3032,6 @@ class ComprehensiveCryptoRiskTracker:
             print(f"   Behavior: {lth['lth_behavior']}")
             print(f"   Signal Strength: {lth['signal_strength']}")
             
-            # ✅ 新增：顯示確認狀態
             if lth['signal_strength'] == 'CONFIRMED':
                 print(f"   ✅ TREND CONFIRMED (3 days up)")
             elif lth['signal_strength'] == 'VERY_STRONG':
@@ -3078,7 +3040,6 @@ class ComprehensiveCryptoRiskTracker:
             print(f"   Est. LTH Supply: {lth['estimated_lth_supply_pct']:.0f}%")
             print(f"   → {lth['interpretation']}")
             
-            # ✅ 新增：顯示供應趨勢
             symbol = result['symbol']
             if symbol in self.history:
                 hist_supply = self.history[symbol].get('lth_supply', [])
@@ -3097,7 +3058,6 @@ class ComprehensiveCryptoRiskTracker:
             print(f"\n🎯 HODL MOMENTUM:")
             print(f"   Score: {hodl['score']:.0f}/100 ({hodl['level']})")
             
-            # ✅ 新增：顯示連續警告
             if hodl.get('consecutive_warning'):
                 print(f"   ⚠️  CONSECUTIVE HIGH SCORES (5+ days) - TOP!")
             
@@ -3198,12 +3158,10 @@ class ComprehensiveCryptoRiskTracker:
             confidence = expected_returns['confidence_level']
             recommendation = expected_returns['recommendation']
             
-            # 上漲概率顯示
             prob_color = '🟢' if prob >= 65 else '🟡' if prob >= 50 else '🔴'
             print(f"\n{prob_color} Upside Probability: {prob:.1f}%")
             print(f"   (Downside: {expected_returns['downside_probability']:.1f}%)")
             
-            # 預期回報/損失
             print(f"\n📈 Expected Return (if up): +{exp_return:.2f}%")
             print(f"📉 Expected Loss (if down): -{exp_loss:.2f}%")
             
@@ -3229,14 +3187,11 @@ class ComprehensiveCryptoRiskTracker:
             else:
                 print(f"   → Suboptimal RR ratio")
             
-            # 信心等級
             conf_symbol = '🔥' if confidence == 'VERY_HIGH' else '💪' if confidence == 'HIGH' else '👍' if confidence == 'MODERATE' else '🤔'
             print(f"\n{conf_symbol} Confidence Level: {confidence}")
             
-            # 投資建議
             print(f"\n💡 Recommendation: {recommendation}")
             
-            # 概率調整因子
             factors = expected_returns.get('probability_factors', [])
             if factors:
                 print(f"\n📋 Probability Adjustments (Base: {expected_returns['base_probability']}%):")
