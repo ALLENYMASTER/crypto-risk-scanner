@@ -36,6 +36,13 @@ class ComprehensiveCryptoRiskTracker:
         
         self._setup_logging()
 
+        self._cache = {
+            'market_data': {},
+            'historical': {},
+            'timestamp': {}
+        }
+        self._cache_ttl = 300  # 5 minutes cache
+
         self.history_file = 'crypto_history.json'
         self.history = self._load_history()
 
@@ -61,25 +68,25 @@ class ComprehensiveCryptoRiskTracker:
         # min_interval: minimum seconds between requests
         self.rate_limits = {
             'coingecko': {
-                'calls_per_minute': 2,
-                'min_interval': 30,  
-                'daily_limit': 300
-            },
-            'okx': {
-                'calls_per_minute': 8,
-                'min_interval': 8,  
-                'daily_limit': None
-            },
-            'binance': {
-                'calls_per_minute': 8,
-                'min_interval': 8,
-                'daily_limit': None
-            },
-            'alternative': {
-                'calls_per_minute': 8,
-                'min_interval': 8,
-                'daily_limit': 100
-            }
+            'calls_per_minute': 2,  
+            'min_interval': 30,    
+            'daily_limit': 300
+        },
+        'okx': {
+            'calls_per_minute': 8,  
+            'min_interval': 8,     
+            'daily_limit': None
+        },
+        'binance': {
+            'calls_per_minute': 8,  
+            'min_interval': 8,     
+            'daily_limit': None
+        },
+        'alternative': {
+            'calls_per_minute': 8,  
+            'min_interval': 8,     
+            'daily_limit': 100
+        }
         }
         
         # Initialize counters
@@ -139,6 +146,18 @@ class ComprehensiveCryptoRiskTracker:
             self.request_counter[source] = 0
         self.request_counter[source] += 1
         
+        # Circuit breaker for repeated failures
+        circuit_breaker_key = f'{source}_failures'
+        if not hasattr(self, '_circuit_breaker'):
+            self._circuit_breaker = {}
+        
+        # If source has failed 3+ times recently, skip immediately
+        if self._circuit_breaker.get(circuit_breaker_key, 0) >= 3:
+            last_failure_time = self._circuit_breaker.get(f'{circuit_breaker_key}_time', 0)
+            if time.time() - last_failure_time < 300:  # 5 minutes
+                self.logger.warning(f"{source}: Circuit breaker open, skipping request")
+                return False, None, f"{source} temporarily unavailable (circuit breaker)"
+        
         # === Retry Loop ===
         for attempt in range(max_retries):
             try:
@@ -146,16 +165,30 @@ class ComprehensiveCryptoRiskTracker:
                 
                 # Handle rate limiting (HTTP 429)
                 if response.status_code == 429:
-                    # Exponential backoff with longer waits
+                    # Reduce max wait time to prevent timeout
                     if source == 'coingecko':
-                        wait_time = 60 * (attempt + 2)  # 120s, 180s, 240s
+                        # Cap at 60 seconds max wait
+                        wait_time = min(60, 30 * (attempt + 1))  # 30s, 60s, 60s
                     else:
-                        wait_time = 30 * (attempt + 1)  # 30s, 60s, 90s
-                        
+                        wait_time = min(30, 15 * (attempt + 1))  # 15s, 30s, 30s
+                    
+                    # On final attempt, fail immediately instead of waiting
+                    if attempt == max_retries - 1:
+                        self.logger.error(f"{source}: Rate limit on final attempt, giving up")
+                        self._circuit_breaker[circuit_breaker_key] = self._circuit_breaker.get(circuit_breaker_key, 0) + 1
+                        self._circuit_breaker[f'{circuit_breaker_key}_time'] = time.time()
+                        return False, None, "Rate limit exceeded"
+                    
                     self.logger.warning(f"{source}: Rate limit hit (attempt {attempt+1}/{max_retries}), waiting {wait_time}s...")
                     print(f"⚠️  {source} rate limit, waiting {wait_time}s...")
                     time.sleep(wait_time)
                     continue
+                
+                # Success - reset circuit breaker
+                if response.status_code == 200:
+                    self._circuit_breaker[circuit_breaker_key] = 0
+                    data = response.json()
+                    return True, data, None
                 
                 # Handle geographic restriction (HTTP 451)
                 if response.status_code == 451:
@@ -209,6 +242,15 @@ class ComprehensiveCryptoRiskTracker:
     
     def get_market_data_coingecko(self, symbol):
         """Get comprehensive market data from CoinGecko"""
+        # Check cache first
+        cache_key = f'market_{symbol}'
+        if cache_key in self._cache['market_data']:
+            cached_time = self._cache['timestamp'].get(cache_key, 0)
+            if time.time() - cached_time < self._cache_ttl:
+                self.logger.info(f"Using cached market data for {symbol}")
+                print(f"   ℹ️  Using cached data (age: {int(time.time() - cached_time)}s)")
+                return self._cache['market_data'][cache_key]
+            
         coin_id = self.coingecko_ids.get(symbol, symbol.lower())
         
         url = f"{self.coingecko_base}/coins/{coin_id}"
@@ -220,14 +262,20 @@ class ComprehensiveCryptoRiskTracker:
         }
         
         success, data, error = self._make_request(url, params, source='coingecko')
-        
+    
         if not success:
+            # Return cached data if available, even if expired
+            if cache_key in self._cache['market_data']:
+                self.logger.warning(f"API failed, using stale cache for {symbol}")
+                print(f"   ⚠️  API error, using older cached data")
+                return self._cache['market_data'][cache_key]
+            
             print(f"⚠️  CoinGecko error for {symbol}: {error}")
             return None
         
         try:
             md = data['market_data']
-            return {
+            result = {
                 'symbol': symbol,
                 'price': md['current_price']['usd'],
                 'price_change_24h': md['price_change_percentage_24h'],
@@ -246,6 +294,12 @@ class ComprehensiveCryptoRiskTracker:
                 'total_supply': md.get('total_supply', 0),
                 'timestamp': datetime.now()
             }
+        
+            # Cache the result
+            self._cache['market_data'][cache_key] = result
+            self._cache['timestamp'][cache_key] = time.time()
+            
+            return result
         except Exception as e:
             print(f"❌ CoinGecko parsing error: {e}")
             return None
@@ -559,15 +613,15 @@ class ComprehensiveCryptoRiskTracker:
             volume_surge = (volume_to_mcap / avg_volume_ratio) - 1  # Deviation from normal
             volatility_7d = abs(price_change_7d)
             
-            if market_cap > 100e9:  # BTC/ETH (>$100B)
-                surge_threshold_strong = 0.6  
+            if market_cap > 100e9:  # BTC/ETH 等大盤 (>$100B)
+                surge_threshold_strong = 0.6  # 需要更強信號
                 surge_threshold_normal = 0.4
                 surge_threshold_low = -0.4
-            elif market_cap > 10e9:  # (>$10B)
+            elif market_cap > 10e9:  # 大型幣 (>$10B)
                 surge_threshold_strong = 0.5
                 surge_threshold_normal = 0.3
                 surge_threshold_low = -0.3
-            else:  
+            else:  # 山寨幣，更敏感
                 surge_threshold_strong = 0.4
                 surge_threshold_normal = 0.2
                 surge_threshold_low = -0.2
@@ -650,19 +704,21 @@ class ComprehensiveCryptoRiskTracker:
                 else:
                     mvrv_ratio = base_mvrv
                 
+                # 時間衰減修正（長期熊市，realized價格下降）
                 try:
                     if ath_date_str:
                         ath_date = datetime.strptime(ath_date_str[:10], '%Y-%m-%d')
                         days_since_ath = (datetime.now() - ath_date).days
                         
+                        # 超過1年且深跌 = 長期熊市
                         if days_since_ath > 365 and ath_dist < -50:
-                            decay_factor = 0.95  
+                            decay_factor = 0.95  # 輕微下調
                             mvrv_ratio *= decay_factor
                             
                             if hasattr(self, 'logger'):
                                 self.logger.debug(f"MVRV time weaken: {days_since_ath}days from ATH, adjust to {mvrv_ratio:.2f}")
                 except:
-                    pass  
+                    pass  # 日期解析失敗，忽略
                 
                 mvrv_ratio = round(mvrv_ratio, 2)
             
@@ -1209,20 +1265,24 @@ class ComprehensiveCryptoRiskTracker:
                 estimated_lth_supply = max(estimated_lth_supply, 78)
             
             ath_dist = market_data.get('ath_change_percentage', 0)
-            if ath_dist < -60:  
+            if ath_dist < -60:  # 深熊市區域
+                # LTH更可能在囤積
                 if behavior == 'NEUTRAL':
                     behavior = 'ACCUMULATION'
                     signal_strength = 'MODERATE'
                     estimated_lth_supply += 3
                 elif behavior == 'ACCUMULATION':
+                    # 加強信號
                     signal_strength = 'VERY_STRONG'
                     estimated_lth_supply = min(estimated_lth_supply + 2, 82)
-            elif ath_dist > -10 and price_change_30d > 30:  
+            elif ath_dist > -10 and price_change_30d > 30:  # 接近ATH且暴漲
+                # LTH更可能在派發
                 if behavior == 'NEUTRAL':
                     behavior = 'DISTRIBUTION'
                     signal_strength = 'MODERATE'
                     estimated_lth_supply -= 5
                 elif behavior == 'DISTRIBUTION':
+                    # 加強信號
                     signal_strength = 'VERY_STRONG'
                     estimated_lth_supply = max(estimated_lth_supply - 3, 60)
             
@@ -1274,7 +1334,7 @@ class ComprehensiveCryptoRiskTracker:
         if behavior == 'DISTRIBUTION':
             return '🚨 CYCLE TOP SIGNAL' if supply < 65 else '⚠️ Profit taking phase'
         elif behavior == 'ACCUMULATION':
-            return '💎 CYCLE BOTTOM SIGNAL' if supply > 77 else ' Smart money accumulation'
+            return '💎 CYCLE BOTTOM SIGNAL' if supply > 77 else '✅ Smart money accumulation'
         elif behavior == 'HOLDING':
             return '🔒 HODLing steady'
         return '➡️ No clear trend'
@@ -1310,8 +1370,9 @@ class ComprehensiveCryptoRiskTracker:
             else:
                 vol_component = min(32 + (avg_volatility - 20) * 1.6, 40)
             
+            # 暴漲期權重調整
             if price_change_30d > 50:
-                vol_component *= 1.2  
+                vol_component *= 1.2  # 暴漲期更易見頂
             
             # === 2. VOLUME COMPONENT (0-40 points) ===
             volume_to_mcap = (volume / mcap) if mcap > 0 else 0
@@ -1325,11 +1386,13 @@ class ComprehensiveCryptoRiskTracker:
             else:
                 volume_component = min(32 + (volume_to_mcap - 0.30) * 80, 40)
             
+            # 暴漲期權重調整
             if price_change_30d > 50:
                 volume_component *= 1.15
             
+            # 極低量懲罰
             if volume_to_mcap < 0.02:
-                volume_component *= 0.7  
+                volume_component *= 0.7  # 極低量期降低分數
             
             # === 3. FUNDING RATE COMPONENT (0-20 points) ===
             fr_component = 0
@@ -1401,7 +1464,7 @@ class ComprehensiveCryptoRiskTracker:
                 'score': hodl_score,
                 'level': level,
                 'interpretation': interpretation,
-                'consecutive_warning': consecutive_warning, 
+                'consecutive_warning': consecutive_warning,  
                 'components': {
                     'volatility': vol_component,
                     'volume': volume_component,
@@ -1447,7 +1510,7 @@ class ComprehensiveCryptoRiskTracker:
     
     def estimate_market_leverage(self, derivatives, market_data):
         """
-         Estimate overall market leverage
+        ✅ Estimate overall market leverage
         
         Method:
         1. OI to Market Cap ratio (higher = more leverage)
@@ -1534,7 +1597,7 @@ class ComprehensiveCryptoRiskTracker:
             
             if leverage_score < 30:
                 risk_level = 'LOW'
-                interpretation = ' Healthy leverage levels'
+                interpretation = '✅ Healthy leverage levels'
             elif leverage_score < 50:
                 risk_level = 'MODERATE'
                 interpretation = '➡️ Normal leverage activity'
@@ -1566,7 +1629,7 @@ class ComprehensiveCryptoRiskTracker:
     
     def determine_market_regime(self, market_data, fear_greed, hodl):
         """
-        ✅ Detect market regime for dynamic weighting
+        Detect market regime for dynamic weighting
         
         Regimes:
         1. BULL_RUN: High momentum, greed, rising prices
@@ -1615,7 +1678,7 @@ class ComprehensiveCryptoRiskTracker:
     
     def get_dynamic_weights(self, regime):
         """
-        ✅ Adjust component weights based on market regime
+        Adjust component weights based on market regime
         
         Logic:
         - BULL_RUN: Weight momentum (technical, derivatives)
@@ -1843,7 +1906,7 @@ class ComprehensiveCryptoRiskTracker:
                 with open(self.history_file, 'r') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"⚠️  Fail to upload history: {e}")
+            print(f"⚠️  Fail upload history: {e}")
         
         return {symbol: {
             'hodl_scores': [],
@@ -1859,7 +1922,7 @@ class ComprehensiveCryptoRiskTracker:
             with open(self.history_file, 'w') as f:
                 json.dump(self.history, f, indent=2)
         except Exception as e:
-            print(f"⚠️  無法保存歷史數據: {e}")
+            print(f"⚠️  Fail save history: {e}")
 
     def _update_history(self, symbol, metrics):
         if symbol not in self.history:
@@ -1965,26 +2028,42 @@ class ComprehensiveCryptoRiskTracker:
         return 'NEUTRAL'
 
     def detect_divergence(self, price_changes, indicator_values, lookback=5):
+        """
+        偵測背離信號
+        
+        Args:
+            price_changes: 價格變化列表 (%)
+            indicator_values: 指標數值列表
+            lookback: 回看期數
+        
+        Returns:
+            'BEARISH_DIV', 'BULLISH_DIV', 'NONE'
+        """
         if not price_changes or not indicator_values:
             return 'NONE'
         
         if len(price_changes) < lookback or len(indicator_values) < lookback:
             return 'NONE'
         
+        # 過濾 None
         recent_prices = [p for p in price_changes[-lookback:] if p is not None]
         recent_indicators = [i for i in indicator_values[-lookback:] if i is not None]
         
         if len(recent_prices) < 3 or len(recent_indicators) < 3:
             return 'NONE'
         
+        # 計算趨勢
         price_trend = 'UP' if recent_prices[-1] > recent_prices[0] else 'DOWN'
         indicator_trend = 'UP' if recent_indicators[-1] > recent_indicators[0] else 'DOWN'
         
+        # 背離偵測
         if price_trend == 'UP' and indicator_trend == 'DOWN':
+            # 價格新高但指標走低 = 頂背離
             if recent_prices[-1] > max(recent_prices[:-1]):
                 return 'BEARISH_DIVERGENCE'
         
         elif price_trend == 'DOWN' and indicator_trend == 'UP':
+            # 價格新低但指標走高 = 底背離
             if recent_prices[-1] < min(recent_prices[:-1]):
                 return 'BULLISH_DIVERGENCE'
         
@@ -2015,9 +2094,10 @@ class ComprehensiveCryptoRiskTracker:
         if symbol in self.history and market_data:
             hist = self.history[symbol]
             
-            # 1. 
+            # 1. 價格 vs HODL Momentum 背離
             if hodl and len(hist.get('hodl_scores', [])) >= 5:
-                price_changes = [market_data.get('price_change_7d', 0)] * 5  
+                # 構建價格變化列表（簡化：用單一價格變化代理）
+                price_changes = [market_data.get('price_change_7d', 0)] * 5  # 簡化版
                 hodl_divergence = self.detect_divergence(
                     price_changes,
                     hist['hodl_scores'],
@@ -2031,11 +2111,12 @@ class ComprehensiveCryptoRiskTracker:
                     divergence_signals.append('📈 divergence_bottom: price new low but HODL momentum up')
                     score_components['divergence'] = 8
             
-            # 2.
+            # 2. 價格 vs LTH Supply 背離
             if lth and len(hist.get('lth_supply', [])) >= 5:
                 price_changes = [market_data.get('price_change_30d', 0)] * 5
                 lth_supply_values = hist['lth_supply']
                 
+                # 供應增加 = 指標"下降"（更多人持有）
                 inverted_supply = [-s for s in lth_supply_values if s is not None]
                 
                 lth_divergence = self.detect_divergence(
@@ -2051,6 +2132,7 @@ class ComprehensiveCryptoRiskTracker:
                     divergence_signals.append('🔺 LTH divergence: price down but buy more')
                     score_components['divergence'] += 6
         
+        # 添加背離信號到總信號列表
         signals.extend(divergence_signals)
     
         # === 1. SUPPORT/RESISTANCE (unchanged scoring) ===
@@ -2313,7 +2395,7 @@ class ComprehensiveCryptoRiskTracker:
             'hodl': 0.05,
             'sentiment': 0.05,
             'confluence': 0.00,  # Bonus, adds to total but not part of base weight
-            'divergence': 0.00   
+            'divergence': 0.00   # 背離信號（Bonus）
         }
         
         # Calculate weighted score
@@ -2372,24 +2454,59 @@ class ComprehensiveCryptoRiskTracker:
         print(f"🎯 COMPREHENSIVE ANALYSIS: {symbol}")
         print(f"{'='*80}\n")
         
+        # Track which data sources succeeded
+        data_sources = {
+            'market_data': False,
+            'historical': False,
+            'technical': False,
+            'onchain': False,
+            'derivatives': False,
+            'liquidity': False,
+            'lth': False,
+            'hodl': False,
+            'sentiment': False
+        }
+        
         # 1. Market Data
         print(f"📊 Fetching market data...")
         market_data = self.get_market_data_coingecko(symbol)
+        if market_data:
+            data_sources['market_data'] = True
+        else:
+            # If market data fails, try to continue with limited analysis
+            print(f"⚠️  Market data unavailable, analysis will be limited")
+            self.logger.warning(f"Market data fetch failed for {symbol}")
+        
         time.sleep(2.5)
         
         # 2. Historical Data & Technical Analysis
         print(f"📈 Analyzing technical indicators...")
-        df = self.get_historical_prices(symbol, days=90)
+        df = None
+        technical = None
+        sr_analysis = None
+        
+        if market_data:  # Only fetch if market data succeeded
+            df = self.get_historical_prices(symbol, days=90)
+            if df is not None:
+                data_sources['historical'] = True
+                technical = self.calculate_technical_indicators(df)
+                if technical:
+                    data_sources['technical'] = True
+                
+                current_price = market_data['price']
+                sr_analysis = self.identify_support_resistance(df, current_price)
+            else:
+                print(f"   ⚠️  Historical data unavailable")
+        
         time.sleep(2.5)
         
-        technical = self.calculate_technical_indicators(df) if df is not None else None
-        
-        current_price = market_data['price'] if market_data else None
-        sr_analysis = self.identify_support_resistance(df, current_price) if df is not None and current_price else None
-        
-        # 3. On-chain Metrics
+        # 3. On-chain Metrics (can work without historical data)
         print(f"⛓️  Analyzing on-chain data...")
-        onchain = self.get_onchain_metrics(symbol, market_data)
+        onchain = None
+        if market_data:
+            onchain = self.get_onchain_metrics(symbol, market_data)
+            if onchain:
+                data_sources['onchain'] = True
         
         # 4. Derivatives Data
         print(f"📊 Fetching derivatives data...")
@@ -2414,6 +2531,22 @@ class ComprehensiveCryptoRiskTracker:
             print(f"😨😃 Fetching sentiment data...")
             fear_greed = self.get_fear_greed_index()
             time.sleep(2.0)
+        
+        critical_data = data_sources['market_data']
+    
+        if not critical_data:
+            error_msg = "⚠️  Unable to fetch critical market data. Please try again in 2-3 minutes."
+            print(f"\n{error_msg}\n")
+            self.logger.error(f"Analysis failed for {symbol}: No market data")
+            
+            # Return minimal error response
+            return {
+                'symbol': symbol,
+                'error': 'market_data_unavailable',
+                'message': error_msg,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC'),
+                'data_sources_available': data_sources
+            }
         
         # 8. Comprehensive Score
         print(f"🎯 Calculating comprehensive score...")
@@ -2759,12 +2892,12 @@ class ComprehensiveCryptoRiskTracker:
         if divergence_signals:
             for div_signal in divergence_signals:
                 if 'BEARISH_DIVERGENCE' in div_signal or 'BEARISH' in div_signal.upper():
-                    suggestions.append(f"⚠️  {div_signal} - sell")
+                    suggestions.append(f"⚠️  {div_signal} - 考慮減倉或設置保護性止損")
                 elif 'BULLISH_DIVERGENCE' in div_signal or 'BULLISH' in div_signal.upper():
-                    suggestions.append(f"✅ {div_signal} - buy")
+                    suggestions.append(f"✅ {div_signal} - 潛在反轉機會，可小倉位試探")
         
         if hodl_data and hodl_data.get('consecutive_warning'):
-            suggestions.append(f"🚨 HODL continuous high score warming")
+            suggestions.append(f"🚨 HODL連續高分警告 - 週期頂部風險極高，建議大幅減倉")
         
         # === ENTRY SUGGESTIONS ===
         if action in ['🟢 STRONG BUY', '🟢 BUY']:
