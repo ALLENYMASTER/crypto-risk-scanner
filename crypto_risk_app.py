@@ -1301,7 +1301,7 @@ HTML_TEMPLATE = """
                 suggestionsList.innerHTML = '<div class="suggestion-item">No suggestions available</div>';
             }
 
-            // ✅ Expected Returns (確保在所有情況下都更新 badge)
+            // ✅ Expected Returns 
             const expectedReturns = data.expected_returns;
             const returnsTab = document.getElementById('returnsTab');
             const returnsBadge = document.getElementById('returnsBadge');
@@ -1312,7 +1312,6 @@ HTML_TEMPLATE = """
             }
 
             if (expectedReturns) {
-                // ✅ 有數據：顯示綠色 READY badge
                 if (returnsBadge) {
                     returnsBadge.style.background = '#22c55e';
                     returnsBadge.textContent = 'READY';
