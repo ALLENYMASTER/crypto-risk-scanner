@@ -61,18 +61,18 @@ class ComprehensiveCryptoRiskTracker:
         # min_interval: minimum seconds between requests
         self.rate_limits = {
             'coingecko': {
-                'calls_per_minute': 10,
-                'min_interval': 6.5,  # Conservative: ~9 calls/min
-                'daily_limit': 500
+                'calls_per_minute': 3,
+                'min_interval': 20,  
+                'daily_limit': 300
             },
             'okx': {
-                'calls_per_minute': 20,
-                'min_interval': 3.5,  # Conservative: ~17 calls/min
+                'calls_per_minute': 10,
+                'min_interval': 6,  
                 'daily_limit': None
             },
             'binance': {
-                'calls_per_minute': 20,
-                'min_interval': 3.5,
+                'calls_per_minute': 10,
+                'min_interval': 6,
                 'daily_limit': None
             },
             'alternative': {
