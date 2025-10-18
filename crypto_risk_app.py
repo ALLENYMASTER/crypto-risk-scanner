@@ -1332,12 +1332,12 @@ HTML_TEMPLATE = """
             const returnsTab = document.getElementById('returnsTab');
             const returnsBadge = document.getElementById('returnsBadge');
 
-            // 先確保 badge 可見（移除任何 display:none）
             if (returnsBadge) {
                 returnsBadge.style.display = 'inline-block';
             }
 
             if (expectedReturns) {
+                // ✅ READY badge
                 if (returnsBadge) {
                     returnsBadge.style.background = '#22c55e';
                     returnsBadge.textContent = 'READY';
@@ -1754,9 +1754,9 @@ HTML_TEMPLATE = """
             document.getElementById('results').style.display = 'none';
 
             try {
-                // Set a timeout for the entire analysis (5 minutes max)
+                // Increase timeout from 5 to 8 minutes
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
+                const timeoutId = setTimeout(() => controller.abort(), 480000); // 8 minutes
 
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
@@ -1775,6 +1775,11 @@ HTML_TEMPLATE = """
                 }
 
                 const data = await response.json();
+
+                // Check for partial data response
+                if (data.error === 'market_data_unavailable') {
+                    throw new Error('Market data temporarily unavailable. CoinGecko API is rate limiting. Please wait 3-5 minutes and try again.');
+                }
 
                 if (data.error) {
                     throw new Error(data.error);
@@ -1812,13 +1817,36 @@ HTML_TEMPLATE = """
                 if (error.name === 'AbortError') {
                     errorDiv.innerHTML = `
                         <h3>⏱️ Analysis Timeout</h3>
-                        <p>The analysis took too long and was cancelled. This usually happens due to:</p>
+                        <p>The analysis took too long (>8 minutes). This is usually due to:</p>
                         <ul>
-                            <li>API rate limiting (too many requests)</li>
-                            <li>Slow network connection</li>
-                            <li>Server overload</li>
+                            <li><strong>CoinGecko rate limiting</strong> - Too many requests recently</li>
+                            <li>API cooldown period (can last 5-15 minutes)</li>
+                            <li>Network congestion</li>
                         </ul>
-                        <p><strong>Suggestion:</strong> Wait 2-3 minutes and try again.</p>
+                        <p><strong>What to do:</strong></p>
+                        <ul>
+                            <li>✅ <strong>Wait 5-10 minutes</strong> before trying again</li>
+                            <li>ℹ️  Rate limits reset after time passes</li>
+                            <li>🔄 Try analyzing a different cryptocurrency</li>
+                        </ul>
+                        <p style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 5px;">
+                            <strong>💡 Tip:</strong> Avoid analyzing the same coin multiple times within 5 minutes.
+                        </p>
+                    `;
+                } else if (error.message.includes('rate limit') || error.message.includes('unavailable')) {
+                    errorDiv.innerHTML = `
+                        <h3>🚦 API Rate Limit</h3>
+                        <p><strong>CoinGecko API is temporarily rate limiting requests.</strong></p>
+                        <p>This is a protective measure by the API provider.</p>
+                        <p><strong>Solution:</strong></p>
+                        <ul>
+                            <li>⏰ Wait <strong>5-10 minutes</strong></li>
+                            <li>🔄 The system will automatically retry</li>
+                            <li>📊 Rate limits reset periodically</li>
+                        </ul>
+                        <p style="margin-top: 10px; color: #666; font-size: 0.9em;">
+                            Note: This is normal for free API tiers. Your data is safe.
+                        </p>
                     `;
                 } else {
                     errorDiv.innerHTML = `
@@ -1826,12 +1854,11 @@ HTML_TEMPLATE = """
                         <p><strong>Error:</strong> ${error.message}</p>
                         <p>This could be due to:</p>
                         <ul>
+                            <li>Temporary API unavailability</li>
                             <li>Network connectivity issues</li>
-                            <li>API service unavailable</li>
-                            <li>Invalid cryptocurrency symbol</li>
-                            <li>Rate limiting (try again in a few minutes)</li>
+                            <li>Service rate limiting</li>
                         </ul>
-                        <p><strong>Suggestion:</strong> Check your connection and try again.</p>
+                        <p><strong>Suggestion:</strong> Wait 3-5 minutes and try again.</p>
                     `;
                 }
                 
@@ -1896,6 +1923,37 @@ def make_json_serializable(data):
         return [make_json_serializable(item) for item in data]
     else:
         return convert_to_serializable(data)
+
+@app.route('/api/rate_limit_status')
+def rate_limit_status():
+    """Check current rate limit status"""
+    global tracker
+    
+    if not tracker or not hasattr(tracker, '_circuit_breaker'):
+        return jsonify({
+            'status': 'healthy',
+            'circuit_breaker': {}
+        })
+    
+    circuit_status = {}
+    for key, value in tracker._circuit_breaker.items():
+        if not key.endswith('_time'):
+            source = key.replace('_failures', '')
+            failures = value
+            last_failure = tracker._circuit_breaker.get(f'{key}_time', 0)
+            time_since_failure = time.time() - last_failure if last_failure > 0 else 0
+            
+            circuit_status[source] = {
+                'failures': failures,
+                'status': 'open' if failures >= 3 and time_since_failure < 300 else 'closed',
+                'cooldown_remaining': max(0, 300 - time_since_failure) if failures >= 3 else 0
+            }
+    
+    return jsonify({
+        'status': 'partial' if any(s['status'] == 'open' for s in circuit_status.values()) else 'healthy',
+        'circuit_breaker': circuit_status,
+        'timestamp': datetime.now().isoformat()
+    })
 
 @app.route('/')
 def index():
