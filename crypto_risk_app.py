@@ -1409,7 +1409,6 @@ HTML_TEMPLATE = """
                 }
                 
             } else {
-                // ✅ 無數據：顯示灰色 N/A badge
                 if (returnsBadge) {
                     returnsBadge.style.background = '#999';
                     returnsBadge.textContent = 'N/A';
@@ -1418,7 +1417,7 @@ HTML_TEMPLATE = """
                 
                 if (returnsTab) {
                     returnsTab.style.opacity = '0.6';
-                    returnsTab.style.pointerEvents = 'auto';  // ✅ 改為 auto，讓用戶可以點擊查看說明
+                    returnsTab.style.pointerEvents = 'auto';  
                     returnsTab.style.cursor = 'pointer';
                 }
                 
@@ -1526,7 +1525,7 @@ HTML_TEMPLATE = """
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ symbol: currentSymbol }),
-                    signal: AbortSignal.timeout(10000)  // 10 second timeout
+                    signal: AbortSignal.timeout(30000)  // 30 second timeout
                 });
 
                 if (!response.ok) {
@@ -1993,7 +1992,7 @@ def live_price():
         coin_id = coingecko_ids.get(symbol, symbol.lower())
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true"
         
-        response = requests.get(url, timeout=30)
+        response = requests.get(url, timeout=60)
         
         if response.status_code == 200:
             api_data = response.json()
