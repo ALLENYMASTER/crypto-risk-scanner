@@ -142,12 +142,12 @@ class ComprehensiveCryptoRiskTracker:
         # === Retry Loop ===
         for attempt in range(max_retries):
             try:
-                response = self.session.get(url, params=params, timeout=20)
+                response = self.session.get(url, params=params, timeout=30)
                 
                 # Handle rate limiting (HTTP 429)
                 if response.status_code == 429:
-                    # Progressive backoff: 5s -> 10s -> 15s
-                    wait_time = 5 * (attempt + 1)
+                    # Progressive backoff
+                    wait_time = 30 * (attempt + 1)
                     self.logger.warning(f"{source}: Rate limit hit (attempt {attempt+1}/{max_retries}), waiting {wait_time}s...")
                     print(f"⚠️  {source} rate limit, waiting {wait_time}s...")
                     time.sleep(wait_time)
