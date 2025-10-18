@@ -44,6 +44,32 @@ RATE_LIMITS = {
     }
 }
 
+def check_api_availability():
+    """Check which APIs are available in user's region"""
+    available_apis = {
+        'coingecko': True,  # Usually available everywhere
+        'binance': True,
+        'okx': True
+    }
+    
+    # Quick test for Binance
+    try:
+        response = requests.get('https://api.binance.com/api/v3/ping', timeout=5)
+        if response.status_code == 451:
+            available_apis['binance'] = False
+            print("⚠️  Binance API blocked in your region (will use OKX for liquidity)")
+    except:
+        pass
+    
+    return available_apis
+
+# Call this at startup (after app initialization, around line 100)
+print("\n🔍 Checking API availability...")
+api_status = check_api_availability()
+if not api_status['binance']:
+    print("   ℹ️  Note: Binance unavailable, using alternative data sources")
+print()
+
 # Rate limiting decorator
 def rate_limit(endpoint_name):
     """
