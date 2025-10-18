@@ -1499,11 +1499,11 @@ HTML_TEMPLATE = """
             // Update immediately
             updateLivePrice();
 
-            // Update every 15 seconds (instead of 60)
+            // Update every 30 seconds 
             // More responsive for trading decisions
             livePriceInterval = setInterval(() => {
                 updateLivePrice();
-            }, 15000);  // 15 seconds
+            }, 30000);  // 30 seconds
         }
 
         function stopLivePriceMonitoring() {
@@ -1993,7 +1993,7 @@ def live_price():
         coin_id = coingecko_ids.get(symbol, symbol.lower())
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true"
         
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=30)
         
         if response.status_code == 200:
             api_data = response.json()
