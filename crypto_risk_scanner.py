@@ -142,7 +142,7 @@ class ComprehensiveCryptoRiskTracker:
         # === Retry Loop ===
         for attempt in range(max_retries):
             try:
-                response = self.session.get(url, params=params, timeout=30)
+                response = self.session.get(url, params=params, timeout=60)
                 
                 # Handle rate limiting (HTTP 429)
                 if response.status_code == 429:
