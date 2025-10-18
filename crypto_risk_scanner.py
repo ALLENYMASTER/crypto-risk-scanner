@@ -61,23 +61,23 @@ class ComprehensiveCryptoRiskTracker:
         # min_interval: minimum seconds between requests
         self.rate_limits = {
             'coingecko': {
-                'calls_per_minute': 3,
-                'min_interval': 20,  
+                'calls_per_minute': 2,
+                'min_interval': 30,  
                 'daily_limit': 300
             },
             'okx': {
-                'calls_per_minute': 10,
-                'min_interval': 6,  
+                'calls_per_minute': 8,
+                'min_interval': 8,  
                 'daily_limit': None
             },
             'binance': {
-                'calls_per_minute': 10,
-                'min_interval': 6,
+                'calls_per_minute': 8,
+                'min_interval': 8,
                 'daily_limit': None
             },
             'alternative': {
-                'calls_per_minute': 10,
-                'min_interval': 6.5,
+                'calls_per_minute': 8,
+                'min_interval': 8,
                 'daily_limit': 100
             }
         }
@@ -146,18 +146,28 @@ class ComprehensiveCryptoRiskTracker:
                 
                 # Handle rate limiting (HTTP 429)
                 if response.status_code == 429:
-                    # Progressive backoff
-                    wait_time = 30 * (attempt + 1)
+                    # Exponential backoff with longer waits
+                    if source == 'coingecko':
+                        wait_time = 60 * (attempt + 2)  # 120s, 180s, 240s
+                    else:
+                        wait_time = 30 * (attempt + 1)  # 30s, 60s, 90s
+                        
                     self.logger.warning(f"{source}: Rate limit hit (attempt {attempt+1}/{max_retries}), waiting {wait_time}s...")
                     print(f"⚠️  {source} rate limit, waiting {wait_time}s...")
                     time.sleep(wait_time)
                     continue
                 
+                # Handle geographic restriction (HTTP 451)
+                if response.status_code == 451:
+                    self.logger.error(f"{source}: Geographic restriction (HTTP 451)")
+                    return False, None, "HTTP 451: Service blocked in your region"
+                
                 # Handle other HTTP errors
                 if response.status_code != 200:
                     if attempt < max_retries - 1:
+                        # Longer wait between retries
                         self.logger.debug(f"{source}: Request failed (attempt {attempt+1}): HTTP {response.status_code}")
-                        time.sleep(3)  # Short wait before retry
+                        time.sleep(5)  # Changed from 3 to 5 seconds
                         continue
                     # Final attempt failed
                     self.logger.error(f"{source}: Request failed after {max_retries} attempts - HTTP {response.status_code}")
@@ -939,7 +949,12 @@ class ComprehensiveCryptoRiskTracker:
             params = {'symbol': binance_symbol, 'limit': 100}
             success, data, error = self._make_request(url, params, source='binance')
             
-            if success and data:
+            # Check for geographic restriction
+            if not success and "451" in str(error):
+                print(f"   ⚠️  Binance blocked in your region (HTTP 451), using OKX...")
+                self.logger.warning(f"Binance API blocked (HTTP 451), falling back to OKX")
+                # Skip to OKX fallback below
+            elif success and data:
                 try:
                     bids = [(float(b[0]), float(b[1])) for b in data['bids'][:50]]
                     asks = [(float(a[0]), float(a[1])) for a in data['asks'][:50]]
@@ -2360,12 +2375,12 @@ class ComprehensiveCryptoRiskTracker:
         # 1. Market Data
         print(f"📊 Fetching market data...")
         market_data = self.get_market_data_coingecko(symbol)
-        time.sleep(1.5)
+        time.sleep(2.5)
         
         # 2. Historical Data & Technical Analysis
         print(f"📈 Analyzing technical indicators...")
         df = self.get_historical_prices(symbol, days=90)
-        time.sleep(1.5)
+        time.sleep(2.5)
         
         technical = self.calculate_technical_indicators(df) if df is not None else None
         
@@ -2379,12 +2394,12 @@ class ComprehensiveCryptoRiskTracker:
         # 4. Derivatives Data
         print(f"📊 Fetching derivatives data...")
         derivatives = self.get_okx_derivatives_data(symbol)
-        time.sleep(1.5)
+        time.sleep(2.0)
         
         # 5. Liquidity Analysis
         print(f"💧 Analyzing liquidity...")
         liquidity = self.get_orderbook_depth(symbol)
-        time.sleep(1)
+        time.sleep(1.5)
         
         # 6. LTH Behavior
         print(f"🦍 Analyzing LTH behavior...")
@@ -2398,7 +2413,7 @@ class ComprehensiveCryptoRiskTracker:
         if self.symbols.index(symbol) == 0:
             print(f"😨😃 Fetching sentiment data...")
             fear_greed = self.get_fear_greed_index()
-            time.sleep(1.5)
+            time.sleep(2.0)
         
         # 8. Comprehensive Score
         print(f"🎯 Calculating comprehensive score...")
